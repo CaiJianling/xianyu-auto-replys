@@ -316,6 +316,25 @@ class DBManager:
             )
             ''')
 
+            # 创建待发货订单表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pending_deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                item_title TEXT,
+                order_id TEXT,
+                order_status TEXT DEFAULT 'pending',
+                delivery_status TEXT DEFAULT 'pending',
+                delivery_content TEXT,
+                delivery_time TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
+            )
+            ''')
+
             # 创建系统设置表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS system_settings (
@@ -1219,7 +1238,8 @@ class DBManager:
             try:
                 cursor = self.conn.cursor()
                 cursor.execute('''
-                SELECT mn.id, mn.channel_id, mn.enabled, nc.name, nc.type, nc.config
+                SELECT mn.id, mn.channel_id, mn.enabled, nc.name, nc.type, nc.config,
+                       nc.smtp_server, nc.smtp_port, nc.sender_email, nc.smtp_password, nc.recipients
                 FROM message_notifications mn
                 JOIN notification_channels nc ON mn.channel_id = nc.id
                 WHERE mn.cookie_id = ? AND nc.enabled = 1
@@ -1234,7 +1254,12 @@ class DBManager:
                         'enabled': bool(row[2]),
                         'channel_name': row[3],
                         'channel_type': row[4],
-                        'channel_config': row[5]
+                        'channel_config': row[5],
+                        'smtp_server': row[6],
+                        'smtp_port': row[7],
+                        'sender_email': row[8],
+                        'smtp_password': row[9],
+                        'recipients': row[10]
                     })
 
                 return notifications
@@ -3383,6 +3408,143 @@ class DBManager:
                 logger.error(f"清空表数据失败: {table_name} - {e}")
                 self.conn.rollback()
                 return False
+
+    # ==================== 待发货订单管理 ====================
+
+    def save_pending_delivery(self, cookie_id: str, user_id: str, item_id: str,
+                             item_title: str = None, order_id: str = None) -> bool:
+        """保存待发货订单"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                INSERT OR REPLACE INTO pending_deliveries
+                (cookie_id, user_id, item_id, item_title, order_id, updated_at)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (cookie_id, user_id, item_id, item_title, order_id))
+                self.conn.commit()
+                logger.debug(f"保存待发货订单: order_id={order_id}, item_id={item_id}")
+                return True
+            except Exception as e:
+                logger.error(f"保存待发货订单失败: {e}")
+                return False
+
+    def get_pending_deliveries(self, cookie_id: str = None, user_id: int = None,
+                              delivery_status: str = None) -> list:
+        """获取待发货订单列表"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+
+                query = 'SELECT id, cookie_id, user_id, item_id, item_title, order_id, order_status, delivery_status, delivery_content, delivery_time, created_at FROM pending_deliveries WHERE 1=1'
+                params = []
+
+                if cookie_id:
+                    query += ' AND cookie_id = ?'
+                    params.append(cookie_id)
+
+                if user_id:
+                    query += ' AND cookie_id IN (SELECT id FROM cookies WHERE user_id = ?)'
+                    params.append(user_id)
+
+                if delivery_status:
+                    query += ' AND delivery_status = ?'
+                    params.append(delivery_status)
+
+                query += ' ORDER BY created_at DESC'
+
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
+                results = []
+                for row in rows:
+                    results.append({
+                        'id': row[0],
+                        'cookie_id': row[1],
+                        'user_id': row[2],
+                        'item_id': row[3],
+                        'item_title': row[4],
+                        'order_id': row[5],
+                        'order_status': row[6],
+                        'delivery_status': row[7],
+                        'delivery_content': row[8],
+                        'delivery_time': row[9],
+                        'created_at': row[10]
+                    })
+
+                return results
+            except Exception as e:
+                logger.error(f"获取待发货订单列表失败: {e}")
+                return []
+
+    def update_pending_delivery_status(self, order_id: str, delivery_status: str,
+                                    delivery_content: str = None) -> bool:
+        """更新待发货订单状态"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                query = 'UPDATE pending_deliveries SET delivery_status = ?, updated_at = CURRENT_TIMESTAMP'
+                params = [delivery_status]
+
+                if delivery_content:
+                    query += ', delivery_content = ?'
+                    params.append(delivery_content)
+
+                if delivery_status == 'delivered':
+                    query += ', delivery_time = CURRENT_TIMESTAMP'
+
+                query += ' WHERE order_id = ?'
+                params.append(order_id)
+
+                cursor.execute(query, params)
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"更新待发货订单状态失败: {e}")
+                return False
+
+    def delete_pending_delivery(self, order_id: str) -> bool:
+        """删除待发货订单"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('DELETE FROM pending_deliveries WHERE order_id = ?', (order_id,))
+                self.conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"删除待发货订单失败: {e}")
+                return False
+
+    def get_pending_delivery_by_order_id(self, order_id: str) -> dict:
+        """根据订单ID获取待发货订单"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                SELECT id, cookie_id, user_id, item_id, item_title, order_id, order_status,
+                       delivery_status, delivery_content, delivery_time, created_at
+                FROM pending_deliveries WHERE order_id = ?
+                ''', (order_id,))
+
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        'id': row[0],
+                        'cookie_id': row[1],
+                        'user_id': row[2],
+                        'item_id': row[3],
+                        'item_title': row[4],
+                        'order_id': row[5],
+                        'order_status': row[6],
+                        'delivery_status': row[7],
+                        'delivery_content': row[8],
+                        'delivery_time': row[9],
+                        'created_at': row[10]
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"获取待发货订单失败: {e}")
+                return None
 
 
 # 全局单例

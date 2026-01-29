@@ -2019,6 +2019,180 @@ def delete_delivery_rule(rule_id: int, current_user: Dict[str, Any] = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/pending-deliveries")
+def get_pending_deliveries(delivery_status: str = None, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取待发货订单列表"""
+    try:
+        from db_manager import db_manager
+        user_id = current_user['user_id']
+        deliveries = db_manager.get_pending_deliveries(user_id=user_id, delivery_status=delivery_status)
+        return {"data": deliveries}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/pending-deliveries/{order_id}/retry-delivery")
+def retry_pending_delivery(order_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """重试发货待发货订单"""
+    try:
+        from db_manager import db_manager
+        import cookie_manager
+
+        # 获取待发货订单信息
+        delivery = db_manager.get_pending_delivery_by_order_id(order_id)
+        if not delivery:
+            raise HTTPException(status_code=404, detail="待发货订单不存在")
+
+        # 检查订单是否已经发货
+        if delivery.get('delivery_status') == 'delivered':
+            raise HTTPException(status_code=400, detail="该订单已经发货，请勿重复发货")
+
+        # 获取对应的XianyuLive实例
+        cookie_id = delivery['cookie_id']
+        xianyu_instance = cookie_manager.get_xianyu_instance(cookie_id)
+
+        if not xianyu_instance:
+            raise HTTPException(status_code=400, detail=f"账号 {cookie_id} 未运行")
+
+        # 检查该订单ID是否已经在内存中标记为已发货
+        if not xianyu_instance.can_auto_delivery(order_id):
+            raise HTTPException(status_code=400, detail="该订单在冷却期内或已发货，请勿重复发货")
+
+        # 调用自动发货方法
+        import asyncio
+        delivery_content = asyncio.run(xianyu_instance._auto_delivery(
+            delivery['item_id'],
+            delivery['item_title'],
+            order_id
+        ))
+
+        if delivery_content:
+            # 更新待发货订单状态
+            db_manager.update_pending_delivery_status(order_id, 'delivered', delivery_content)
+            # 标记为已发货（防重复）
+            xianyu_instance.mark_delivery_sent(order_id)
+            return {"message": "重试发货成功", "delivery_content": delivery_content}
+        else:
+            raise HTTPException(status_code=400, detail="未找到匹配的发货规则或获取发货内容失败")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/pending-deliveries/{order_id}")
+def delete_pending_delivery(order_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """删除待发货订单"""
+    try:
+        from db_manager import db_manager
+        success = db_manager.delete_pending_delivery(order_id)
+        if success:
+            return {"message": "删除成功"}
+        else:
+            raise HTTPException(status_code=404, detail="待发货订单不存在")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/pending-deliveries/process-all")
+def process_all_pending_deliveries(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """批量处理所有待发货订单（自动发货）"""
+    try:
+        from db_manager import db_manager
+        import cookie_manager
+
+        # 获取所有待处理的订单
+        pending_deliveries = db_manager.get_pending_deliveries(user_id=current_user['user_id'], delivery_status='pending')
+
+        if not pending_deliveries:
+            return {"message": "没有待处理的订单", "processed": 0, "success": 0, "failed": 0}
+
+        processed = 0
+        success = 0
+        failed = 0
+        results = []
+
+        import asyncio
+
+        for delivery in pending_deliveries:
+            try:
+                processed += 1
+
+                # 获取对应的XianyuLive实例
+                cookie_id = delivery['cookie_id']
+                xianyu_instance = cookie_manager.get_xianyu_instance(cookie_id)
+
+                if not xianyu_instance:
+                    failed += 1
+                    results.append({
+                        "order_id": delivery['order_id'],
+                        "item_id": delivery['item_id'],
+                        "status": "failed",
+                        "message": f"账号 {cookie_id} 未运行"
+                    })
+                    continue
+
+                # 检查该订单ID是否已经在内存中标记为已发货
+                if not xianyu_instance.can_auto_delivery(delivery['order_id']):
+                    failed += 1
+                    results.append({
+                        "order_id": delivery['order_id'],
+                        "item_id": delivery['item_id'],
+                        "status": "failed",
+                        "message": "该订单在冷却期内或已发货，请勿重复发货"
+                    })
+                    continue
+
+                # 调用自动发货方法
+                delivery_content = asyncio.run(xianyu_instance._auto_delivery(
+                    delivery['item_id'],
+                    delivery['item_title'],
+                    delivery['order_id']
+                ))
+
+                if delivery_content:
+                    # 更新待发货订单状态
+                    db_manager.update_pending_delivery_status(delivery['order_id'], 'delivered', delivery_content)
+                    # 标记为已发货（防重复）
+                    xianyu_instance.mark_delivery_sent(delivery['order_id'])
+                    success += 1
+                    results.append({
+                        "order_id": delivery['order_id'],
+                        "item_id": delivery['item_id'],
+                        "status": "success",
+                        "message": "发货成功"
+                    })
+                else:
+                    failed += 1
+                    results.append({
+                        "order_id": delivery['order_id'],
+                        "item_id": delivery['item_id'],
+                        "status": "failed",
+                        "message": "未找到匹配的发货规则或获取发货内容失败"
+                    })
+
+            except Exception as e:
+                failed += 1
+                results.append({
+                    "order_id": delivery['order_id'],
+                    "item_id": delivery['item_id'],
+                    "status": "failed",
+                    "message": str(e)
+                })
+
+        return {
+            "message": f"批量处理完成，共处理 {processed} 个订单，成功 {success} 个，失败 {failed} 个",
+            "processed": processed,
+            "success": success,
+            "failed": failed,
+            "results": results
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== 备份和恢复 API ====================
 
 @app.get("/backup/export")

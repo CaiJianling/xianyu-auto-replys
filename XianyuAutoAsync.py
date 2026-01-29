@@ -304,6 +304,53 @@ class XianyuLive:
             logger.error(f"更新商品详情异常: {self._safe_str(e)}")
             return False
 
+    async def save_pending_delivery(self, order_id: str, item_id: str, user_id: str, user_name: str = None):
+        """保存待发货订单到数据库"""
+        try:
+            from db_manager import db_manager
+
+            # 获取商品标题
+            item_title = None
+            try:
+                item_info = db_manager.get_item_info(self.cookie_id, item_id)
+                if item_info:
+                    item_title = item_info.get('item_title')
+            except Exception as e:
+                logger.debug(f"获取商品标题失败: {e}")
+
+            # 保存待发货订单
+            db_manager.save_pending_delivery(
+                self.cookie_id,
+                user_id,
+                item_id,
+                item_title,
+                order_id
+            )
+            logger.info(f"已记录待发货订单: order_id={order_id}, item_id={item_id}, user_id={user_id}")
+
+        except Exception as e:
+            logger.error(f"保存待发货订单失败: {self._safe_str(e)}")
+
+    async def update_pending_delivery_status(self, order_id: str, delivery_status: str, delivery_content: str = None):
+        """更新待发货订单状态"""
+        try:
+            from db_manager import db_manager
+
+            success = db_manager.update_pending_delivery_status(
+                order_id,
+                delivery_status,
+                delivery_content
+            )
+
+            if success:
+                logger.info(f"已更新待发货订单状态: order_id={order_id}, status={delivery_status}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"更新待发货订单状态失败: {self._safe_str(e)}")
+            return False
+
     async def fetch_item_detail_from_api(self, item_id: str) -> str:
         """从外部API获取商品详情
 
@@ -968,8 +1015,8 @@ class XianyuLive:
                 logger.warning(f"邮箱通知配置不完整: {notification.get('channel_name', 'Unknown')}")
                 return
 
-            # 解析接收者邮箱列表
-            recipient_list = [email.strip() for email in recipients.split('\n') if email.strip()]
+            # 解析接收者邮箱列表（支持换行、逗号、分号分隔）
+            recipient_list = [email.strip() for email in recipients.replace(';', ',').replace('\n', ',').split(',') if email.strip()]
             if not recipient_list:
                 logger.warning("未配置接收者邮箱")
                 return
@@ -2257,6 +2304,9 @@ class XianyuLive:
                 if not self.can_auto_delivery(order_id):
                     return
 
+                # 记录待发货订单到数据库
+                await self.save_pending_delivery(order_id, item_id, send_user_id, send_user_name)
+
                 # 构造用户URL
                 user_url = f'https://www.goofish.com/personal?userId={send_user_id}'
 
@@ -2274,12 +2324,17 @@ class XianyuLive:
                         # 标记已发货（防重复）- 基于订单ID
                         self.mark_delivery_sent(order_id)
 
+                        # 更新待发货订单状态
+                        await self.update_pending_delivery_status(order_id, 'delivered', delivery_content)
+
                         # 发送发货内容给买家
                         await self.send_msg(websocket, chat_id, send_user_id, delivery_content)
                         logger.info(f'[{msg_time}] 【自动发货】已向 {user_url} 发送发货内容')
                         await self.send_delivery_failure_notification(send_user_name, send_user_id, item_id, "发货成功")
                     else:
                         logger.warning(f'[{msg_time}] 【自动发货】未找到匹配的发货规则或获取发货内容失败')
+                        # 更新待发货订单状态为待处理
+                        await self.update_pending_delivery_status(order_id, 'pending', None)
                         # 发送自动发货失败通知
                         await self.send_delivery_failure_notification(send_user_name, send_user_id, item_id, "未找到匹配的发货规则或获取发货内容失败")
 
@@ -2350,6 +2405,9 @@ class XianyuLive:
                 if not self.can_auto_delivery(order_id):
                     return
 
+                # 记录待发货订单到数据库
+                await self.save_pending_delivery(order_id, item_id, send_user_id, send_user_name)
+
                 # 构造用户URL
                 user_url = f'https://www.goofish.com/personal?userId={send_user_id}'
 
@@ -2367,12 +2425,17 @@ class XianyuLive:
                         # 标记已发货（防重复）- 基于订单ID
                         self.mark_delivery_sent(order_id)
 
+                        # 更新待发货订单状态
+                        await self.update_pending_delivery_status(order_id, 'delivered', delivery_content)
+
                         # 发送发货内容给买家
                         await self.send_msg(websocket, chat_id, send_user_id, delivery_content)
                         logger.info(f'[{msg_time}] 【自动发货】已向 {user_url} 发送发货内容')
                         await self.send_delivery_failure_notification(send_user_name, send_user_id, item_id, "发货成功")
                     else:
                         logger.warning(f'[{msg_time}] 【自动发货】未找到匹配的发货规则或获取发货内容失败')
+                        # 更新待发货订单状态为待处理
+                        await self.update_pending_delivery_status(order_id, 'pending', None)
                         # 发送自动发货失败通知
                         await self.send_delivery_failure_notification(send_user_name, send_user_id, item_id, "未找到匹配的发货规则或获取发货内容失败")
 

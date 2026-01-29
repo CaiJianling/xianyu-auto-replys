@@ -849,14 +849,24 @@ class DefaultReplyIn(BaseModel):
 
 class NotificationChannelIn(BaseModel):
     name: str
-    type: str = "qq"
+    type: str = "email"
     config: str
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
+    sender_email: Optional[str] = None
+    smtp_password: Optional[str] = None
+    recipients: Optional[str] = None
 
 
 class NotificationChannelUpdate(BaseModel):
     name: str
     config: str
     enabled: bool = True
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
+    sender_email: Optional[str] = None
+    smtp_password: Optional[str] = None
+    recipients: Optional[str] = None
 
 
 class MessageNotificationIn(BaseModel):
@@ -1096,7 +1106,12 @@ def create_notification_channel(channel_data: NotificationChannelIn, current_use
             channel_data.name,
             channel_data.type,
             channel_data.config,
-            user_id
+            user_id,
+            channel_data.smtp_server,
+            channel_data.smtp_port,
+            channel_data.sender_email,
+            channel_data.smtp_password,
+            channel_data.recipients
         )
         return {'msg': 'notification channel created', 'id': channel_id}
     except Exception as e:
@@ -1127,7 +1142,12 @@ def update_notification_channel(channel_id: int, channel_data: NotificationChann
             channel_id,
             channel_data.name,
             channel_data.config,
-            channel_data.enabled
+            channel_data.enabled,
+            channel_data.smtp_server,
+            channel_data.smtp_port,
+            channel_data.sender_email,
+            channel_data.smtp_password,
+            channel_data.recipients
         )
         if success:
             return {'msg': 'notification channel updated'}
@@ -1151,6 +1171,93 @@ def delete_notification_channel(channel_id: int, _: None = Depends(require_auth)
             raise HTTPException(status_code=404, detail='通知渠道不存在')
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/notification-channels/{channel_id}/test')
+def test_notification_channel(channel_id: int, _: None = Depends(require_auth)):
+    """测试通知渠道发送"""
+    from db_manager import db_manager
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    import ssl
+
+    try:
+        channel = db_manager.get_notification_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail='通知渠道不存在')
+
+        if channel['type'] != 'email':
+            raise HTTPException(status_code=400, detail='只支持测试邮箱通知渠道')
+
+        # 获取邮箱配置
+        smtp_server = channel.get('smtp_server')
+        smtp_port = channel.get('smtp_port', 465)
+        sender_email = channel.get('sender_email')
+        smtp_password = channel.get('smtp_password')
+
+        if not all([smtp_server, sender_email, smtp_password]):
+            raise HTTPException(status_code=400, detail='邮箱配置不完整')
+
+        # 获取接收人邮箱
+        recipients = channel.get('recipients')
+        if not recipients:
+            raise HTTPException(status_code=400, detail='未配置接收人邮箱')
+
+        # 解析接收人邮箱（支持多个邮箱，用逗号或分号分隔）
+        recipient_list = [r.strip() for r in recipients.replace(';', ',').split(',') if r.strip()]
+        if not recipient_list:
+            raise HTTPException(status_code=400, detail='接收人邮箱格式不正确')
+
+        # 创建邮件
+        test_subject = '【闲鱼自动回复】测试邮件'
+        test_content = f'''这是一封测试邮件。
+
+如果您收到此邮件，说明您的邮箱通知渠道配置正确！
+
+测试时间：{channel.get('updated_at', 'N/A')}
+通知渠道名称：{channel['name']}
+发送邮箱：{sender_email}
+
+您可以放心使用此通知渠道接收系统消息。'''
+
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = ', '.join(recipient_list)
+        msg['Subject'] = test_subject
+        msg.attach(MIMEText(test_content, 'plain', 'utf-8'))
+
+        # 创建SSL上下文
+        context = ssl.create_default_context()
+
+        # 发送邮件
+        if smtp_port == 465:
+            # SSL加密连接
+            with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=10) as server:
+                server.login(sender_email, smtp_password)
+                server.sendmail(sender_email, recipient_list, msg.as_string())
+        elif smtp_port == 587:
+            # TLS加密连接
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+                server.starttls(context=context)
+                server.login(sender_email, smtp_password)
+                server.sendmail(sender_email, recipient_list, msg.as_string())
+        else:
+            # 不加密连接（不推荐）
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+                server.login(sender_email, smtp_password)
+                server.sendmail(sender_email, recipient_list, msg.as_string())
+
+        return {'msg': '测试邮件发送成功', 'detail': f'已发送至 {", ".join(recipient_list)}'}
+
+    except smtplib.SMTPAuthenticationError:
+        raise HTTPException(status_code=400, detail='SMTP认证失败，请检查邮箱地址和密码')
+    except smtplib.SMTPConnectError:
+        raise HTTPException(status_code=400, detail='无法连接SMTP服务器，请检查服务器地址和端口')
+    except smtplib.SMTPException as e:
+        raise HTTPException(status_code=400, detail=f'SMTP发送失败: {str(e)}')
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

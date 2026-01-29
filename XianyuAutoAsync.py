@@ -909,6 +909,8 @@ class XianyuLive:
                 try:
                     if channel_type == 'qq':
                         await self._send_qq_notification(channel_config, notification_msg)
+                    elif channel_type == 'email':
+                        await self._send_email_notification(notification, notification_msg)
                     else:
                         logger.warning(f"不支持的通知渠道类型: {channel_type}")
 
@@ -946,6 +948,66 @@ class XianyuLive:
 
         except Exception as e:
             logger.error(f"发送QQ通知异常: {self._safe_str(e)}")
+
+    async def _send_email_notification(self, notification: dict, message: str):
+        """发送邮箱通知"""
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            import ssl
+
+            # 获取邮箱配置
+            smtp_server = notification.get('smtp_server')
+            smtp_port = notification.get('smtp_port', 465)
+            sender_email = notification.get('sender_email')
+            smtp_password = notification.get('smtp_password')
+            recipients = notification.get('recipients', '')
+
+            if not all([smtp_server, sender_email, smtp_password, recipients]):
+                logger.warning(f"邮箱通知配置不完整: {notification.get('channel_name', 'Unknown')}")
+                return
+
+            # 解析接收者邮箱列表
+            recipient_list = [email.strip() for email in recipients.split('\n') if email.strip()]
+            if not recipient_list:
+                logger.warning("未配置接收者邮箱")
+                return
+
+            # 创建邮件
+            msg = MIMEMultipart()
+            msg['From'] = sender_email
+            msg['To'] = ', '.join(recipient_list)
+            msg['Subject'] = f"[闲鱼自动回复] 通知消息 - {time.strftime('%Y-%m-%d %H:%M:%S')}"
+
+            # 添加邮件正文
+            msg.attach(MIMEText(message, 'plain', 'utf-8'))
+
+            # 创建SSL上下文
+            context = ssl.create_default_context()
+
+            # 发送邮件
+            if smtp_port == 465:
+                # SSL加密连接
+                with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context, timeout=10) as server:
+                    server.login(sender_email, smtp_password)
+                    server.sendmail(sender_email, recipient_list, msg.as_string())
+            elif smtp_port == 587:
+                # TLS加密连接
+                with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+                    server.starttls(context=context)
+                    server.login(sender_email, smtp_password)
+                    server.sendmail(sender_email, recipient_list, msg.as_string())
+            else:
+                # 不加密连接（不推荐）
+                with smtplib.SMTP(smtp_server, smtp_port, timeout=10) as server:
+                    server.login(sender_email, smtp_password)
+                    server.sendmail(sender_email, recipient_list, msg.as_string())
+
+            logger.info(f"邮箱通知发送成功: {sender_email} -> {len(recipient_list)}个接收者")
+
+        except Exception as e:
+            logger.error(f"发送邮箱通知异常: {self._safe_str(e)}")
 
     async def send_token_refresh_notification(self, error_message: str, notification_type: str = "token_refresh"):
         """发送Token刷新异常通知（带防重复机制）"""
@@ -995,6 +1057,9 @@ class XianyuLive:
                 try:
                     if channel_type == 'qq':
                         await self._send_qq_notification(channel_config, notification_msg)
+                        notification_sent = True
+                    elif channel_type == 'email':
+                        await self._send_email_notification(notification, notification_msg)
                         notification_sent = True
                     else:
                         logger.warning(f"不支持的通知渠道类型: {channel_type}")
@@ -1066,6 +1131,9 @@ class XianyuLive:
                     if channel_type == 'qq':
                         await self._send_qq_notification(channel_config, notification_message)
                         logger.info(f"已发送自动发货通知到QQ: {channel_config}")
+                    elif channel_type == 'email':
+                        await self._send_email_notification(notification, notification_message)
+                        logger.info(f"已发送自动发货通知到邮箱")
 
         except Exception as e:
             logger.error(f"发送自动发货通知异常: {self._safe_str(e)}")

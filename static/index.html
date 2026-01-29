@@ -1719,56 +1719,28 @@
           <i class="bi bi-bell me-2"></i>
           通知渠道管理
         </h2>
-        <p class="text-muted mb-0">管理消息通知渠道，支持QQ通知等多种方式</p>
+        <p class="text-muted mb-0">管理消息通知渠道，支持邮箱通知</p>
       </div>
       <div class="content-body">
-        <!-- 添加通知渠道 -->
-        <div class="card mb-4">
-          <div class="card-header">
-            <span><i class="bi bi-plus-circle me-2"></i>添加QQ通知渠道</span>
-          </div>
-          <div class="card-body">
-            <div class="alert alert-info">
-              <i class="bi bi-info-circle me-2"></i>
-              <strong>使用说明：</strong>需要添加QQ号 <code>3668943488</code> 为好友才能正常接收消息通知
-            </div>
-            <form id="addChannelForm" class="row g-3">
-              <div class="col-md-4">
-                <label for="channelName" class="form-label">渠道名称</label>
-                <input type="text" class="form-control" id="channelName" placeholder="例如：我的QQ通知" required>
-              </div>
-              <div class="col-md-4">
-                <label for="channelQQ" class="form-label">接收QQ号码</label>
-                <input type="text" class="form-control" id="channelQQ" placeholder="输入QQ号码" required>
-              </div>
-              <div class="col-md-4 d-flex align-items-end">
-                <button type="submit" class="btn btn-primary">
-                  <i class="bi bi-plus-lg me-1"></i>添加渠道
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
         <!-- 通知渠道列表 -->
         <div class="card">
           <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-list-ul me-2"></i>通知渠道列表</span>
-            <button class="btn btn-sm btn-outline-primary" onclick="loadNotificationChannels()">
-              <i class="bi bi-arrow-clockwise me-1"></i>刷新
+            <button class="btn btn-primary btn-sm" onclick="showAddChannelModal()">
+              <i class="bi bi-plus-lg me-1"></i>添加通知渠道
             </button>
           </div>
-          <div class="card-body">
+          <div class="card-body p-0">
             <div class="table-responsive">
               <table class="table table-hover" id="channelsTable">
                 <thead>
                   <tr>
                     <th style="width: 10%">ID</th>
-                    <th style="width: 25%">名称</th>
+                    <th style="width: 20%">名称</th>
                     <th style="width: 15%">类型</th>
-                    <th style="width: 20%">配置</th>
+                    <th style="width: 30%">配置</th>
                     <th style="width: 10%">状态</th>
-                    <th style="width: 20%">操作</th>
+                    <th style="width: 15%">操作</th>
                   </tr>
                 </thead>
                 <tbody id="channelsTableBody">
@@ -2066,7 +2038,7 @@
 
   <!-- 编辑通知渠道模态框 -->
   <div class="modal fade" id="editChannelModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">
@@ -2078,13 +2050,34 @@
         <div class="modal-body">
           <form id="editChannelForm">
             <input type="hidden" id="editChannelId">
+            <input type="hidden" id="editChannelType">
             <div class="mb-3">
               <label for="editChannelName" class="form-label">渠道名称 <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="editChannelName" placeholder="例如：我的QQ通知" required>
+              <input type="text" class="form-control" id="editChannelName" placeholder="例如：我的邮箱通知" required>
             </div>
-            <div class="mb-3">
-              <label for="editChannelQQ" class="form-label">接收QQ号码 <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="editChannelQQ" placeholder="输入QQ号码" required>
+            <div id="emailConfigFields">
+              <div class="mb-3">
+                <label for="editSenderEmail" class="form-label">发送人邮箱 <span class="text-danger">*</span></label>
+                <input type="email" class="form-control" id="editSenderEmail" placeholder="例如：your@qq.com" required>
+              </div>
+              <div class="row">
+                <div class="col-md-8 mb-3">
+                  <label for="editSmtpServer" class="form-label">SMTP服务器 <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="editSmtpServer" placeholder="例如：smtp.qq.com" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                  <label for="editSmtpPort" class="form-label">SMTP端口 <span class="text-danger">*</span></label>
+                  <input type="number" class="form-control" id="editSmtpPort" placeholder="465" required>
+                </div>
+              </div>
+              <div class="mb-3">
+                <label for="editSmtpPassword" class="form-label">SMTP密码（授权码） <span class="text-danger">*</span></label>
+                <input type="password" class="form-control" id="editSmtpPassword" placeholder="邮箱SMTP授权码" required>
+              </div>
+              <div class="mb-3">
+                <label for="editRecipients" class="form-label">接收者邮箱（每行一个） <span class="text-danger">*</span></label>
+                <textarea class="form-control" id="editRecipients" rows="4" placeholder="recipient1@example.com&#10;recipient2@example.com" required></textarea>
+              </div>
             </div>
             <div class="mb-3">
               <div class="form-check">
@@ -2142,6 +2135,75 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
           <button type="button" class="btn btn-primary" onclick="saveAccountNotification()">保存配置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加通知渠道模态框 -->
+  <div class="modal fade" id="addChannelModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">
+            <i class="bi bi-bell me-2"></i>
+            添加通知渠道
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="addChannelForm" onsubmit="event.preventDefault(); saveChannel(); return false;">
+            <div class="mb-3">
+              <label class="form-label">渠道名称 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="channelName" placeholder="例如：我的邮箱通知" required>
+            </div>
+
+            <div class="card mb-3">
+              <div class="card-header">
+                <h6 class="mb-0">邮箱配置</h6>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">发送人邮箱 <span class="text-danger">*</span></label>
+                    <input type="email" class="form-control" id="senderEmail" placeholder="your@qq.com" required>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">SMTP端口 <span class="text-danger">*</span></label>
+                    <input type="number" class="form-control" id="smtpPort" value="465" placeholder="465或587" required>
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">SMTP服务器 <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="smtpServer" placeholder="smtp.qq.com" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">SMTP密码（授权码） <span class="text-danger">*</span></label>
+                  <input type="password" class="form-control" id="smtpPassword" placeholder="邮箱SMTP授权码，非邮箱登录密码" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">接收者邮箱（每行一个）<span class="text-danger">*</span></label>
+                  <textarea class="form-control" id="recipients" rows="5" placeholder="recipient1@example.com&#10;recipient2@example.com" required></textarea>
+                  <small class="form-text text-muted">每行填写一个邮箱地址</small>
+                </div>
+              </div>
+            </div>
+
+            <div class="alert alert-info">
+              <i class="bi bi-info-circle me-2"></i>
+              <strong>常用邮箱配置：</strong><br>
+              QQ邮箱: smtp.qq.com, 端口465 (SSL)<br>
+              163邮箱: smtp.163.com, 端口465 (SSL)<br>
+              Gmail: smtp.gmail.com, 端口587 (TLS)<br>
+              需要在邮箱设置中开启SMTP服务并获取授权码
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" class="btn btn-primary" onclick="saveChannel()">
+            <i class="bi bi-check-lg me-1"></i>保存
+          </button>
         </div>
       </div>
     </div>
@@ -4662,7 +4724,7 @@
             <td colspan="6" class="text-center py-4 text-muted">
               <i class="bi bi-bell fs-1 d-block mb-3"></i>
               <h5>暂无通知渠道</h5>
-              <p class="mb-0">请添加QQ通知渠道</p>
+              <p class="mb-0">请添加邮箱通知渠道</p>
             </td>
           </tr>
         `;
@@ -4676,14 +4738,28 @@
           '<span class="badge bg-success">启用</span>' :
           '<span class="badge bg-secondary">禁用</span>';
 
+        const typeBadge = channel.type === 'email' ?
+          '<span class="badge bg-primary">邮箱</span>' :
+          '<span class="badge bg-info">QQ</span>';
+
+        const configDisplay = channel.type === 'email' ?
+          `<small class="text-muted">发件人: ${channel.sender_email}</small>` :
+          `<code>${channel.config}</code>`;
+
+        const testButton = channel.type === 'email' ?
+          `<button class="btn btn-sm btn-outline-success" onclick="testNotificationChannel(${channel.id})" title="测试发送">
+            <i class="bi bi-send"></i>
+          </button>` : '';
+
         tr.innerHTML = `
           <td><strong class="text-primary">${channel.id}</strong></td>
           <td>${channel.name}</td>
-          <td><span class="badge bg-info">QQ</span></td>
-          <td><code>${channel.config}</code></td>
+          <td>${typeBadge}</td>
+          <td>${configDisplay}</td>
           <td>${statusBadge}</td>
           <td>
             <div class="btn-group" role="group">
+              ${testButton}
               <button class="btn btn-sm btn-outline-primary" onclick="editNotificationChannel(${channel.id})" title="编辑">
                 <i class="bi bi-pencil"></i>
               </button>
@@ -4698,45 +4774,89 @@
       });
     }
 
-    // 添加通知渠道表单提交
-    document.addEventListener('DOMContentLoaded', function() {
-      const addChannelForm = document.getElementById('addChannelForm');
-      if (addChannelForm) {
-        addChannelForm.addEventListener('submit', async function(e) {
-          e.preventDefault();
+    // 显示添加通知渠道模态框
+    function showAddChannelModal() {
+      // 清空表单
+      document.getElementById('addChannelForm').reset();
+      // 显示模态框
+      const modal = new bootstrap.Modal(document.getElementById('addChannelModal'));
+      modal.show();
+    }
 
-          const name = document.getElementById('channelName').value;
-          const qq = document.getElementById('channelQQ').value;
+    // 保存通知渠道
+    async function saveChannel() {
+      const name = document.getElementById('channelName').value;
+      const senderEmail = document.getElementById('senderEmail').value;
+      const smtpServer = document.getElementById('smtpServer').value;
+      const smtpPort = parseInt(document.getElementById('smtpPort').value);
+      const smtpPassword = document.getElementById('smtpPassword').value;
+      const recipients = document.getElementById('recipients').value;
 
-          try {
-            const response = await fetch(`${apiBase}/notification-channels`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                name: name,
-                type: 'qq',
-                config: qq
-              })
-            });
+      if (!name || !senderEmail || !smtpServer || !smtpPort || !smtpPassword || !recipients) {
+        showToast('请填写完整信息', 'warning');
+        return;
+      }
 
-            if (response.ok) {
-              showToast('通知渠道添加成功', 'success');
-              addChannelForm.reset();
-              loadNotificationChannels();
-            } else {
-              const error = await response.text();
-              showToast(`添加失败: ${error}`, 'danger');
-            }
-          } catch (error) {
-            console.error('添加通知渠道失败:', error);
-            showToast('添加通知渠道失败', 'danger');
+      try {
+        const response = await fetch(`${apiBase}/notification-channels`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: name,
+            type: 'email',
+            config: senderEmail,
+            smtp_server: smtpServer,
+            smtp_port: smtpPort,
+            sender_email: senderEmail,
+            smtp_password: smtpPassword,
+            recipients: recipients
+          })
+        });
+
+        if (response.ok) {
+          showToast('通知渠道添加成功', 'success');
+          // 关闭模态框
+          const modal = bootstrap.Modal.getInstance(document.getElementById('addChannelModal'));
+          modal.hide();
+          // 刷新列表
+          loadNotificationChannels();
+        } else {
+          const error = await response.text();
+          showToast(`添加失败: ${error}`, 'danger');
+        }
+      } catch (error) {
+        console.error('添加通知渠道失败:', error);
+        showToast('添加通知渠道失败', 'danger');
+      }
+    }
+
+    // 测试通知渠道
+    async function testNotificationChannel(channelId) {
+      try {
+        showToast('正在发送测试邮件...', 'info');
+
+        const response = await fetch(`${apiBase}/notification-channels/${channelId}/test`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`
           }
         });
+
+        if (response.ok) {
+          const result = await response.json();
+          showToast(`测试邮件发送成功！${result.detail || ''}`, 'success');
+        } else {
+          const error = await response.json();
+          showToast(`测试失败: ${error.detail || '未知错误'}`, 'danger');
+        }
+      } catch (error) {
+        console.error('测试通知渠道失败:', error);
+        showToast('测试通知渠道失败', 'danger');
       }
-    });
+    }
 
     // 删除通知渠道
     async function deleteNotificationChannel(channelId) {
@@ -4789,9 +4909,17 @@
 
         // 填充编辑表单
         document.getElementById('editChannelId').value = channel.id;
+        document.getElementById('editChannelType').value = channel.type;
         document.getElementById('editChannelName').value = channel.name;
-        document.getElementById('editChannelQQ').value = channel.config;
         document.getElementById('editChannelEnabled').checked = channel.enabled;
+
+        if (channel.type === 'email') {
+          document.getElementById('editSenderEmail').value = channel.sender_email || '';
+          document.getElementById('editSmtpServer').value = channel.smtp_server || '';
+          document.getElementById('editSmtpPort').value = channel.smtp_port || '465';
+          document.getElementById('editSmtpPassword').value = channel.smtp_password || '';
+          document.getElementById('editRecipients').value = channel.recipients || '';
+        }
 
         // 显示编辑模态框
         const modal = new bootstrap.Modal(document.getElementById('editChannelModal'));
@@ -4806,10 +4934,9 @@
     async function updateNotificationChannel() {
       const channelId = document.getElementById('editChannelId').value;
       const name = document.getElementById('editChannelName').value;
-      const qq = document.getElementById('editChannelQQ').value;
       const enabled = document.getElementById('editChannelEnabled').checked;
 
-      if (!name || !qq) {
+      if (!name) {
         showToast('请填写完整信息', 'warning');
         return;
       }
@@ -4823,8 +4950,13 @@
           },
           body: JSON.stringify({
             name: name,
-            config: qq,
-            enabled: enabled
+            config: document.getElementById('editSenderEmail').value,
+            enabled: enabled,
+            smtp_server: document.getElementById('editSmtpServer').value,
+            smtp_port: parseInt(document.getElementById('editSmtpPort').value),
+            sender_email: document.getElementById('editSenderEmail').value,
+            smtp_password: document.getElementById('editSmtpPassword').value,
+            recipients: document.getElementById('editRecipients').value
           })
         });
 

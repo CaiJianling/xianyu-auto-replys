@@ -149,6 +149,12 @@ cd xianyu-auto-reply
 # 3. 访问系统
 # http://localhost:8080
 ```
+或者
+
+```bash
+docker-compose build --no-cache
+docker-compose up -d
+```
 
 #### 🔧 Docker部署故障排除
 
@@ -166,6 +172,17 @@ cd xianyu-auto-reply
 # 1. 克隆项目
 git clone https://github.com/zhinianboke/xianyu-auto-reply.git
 cd xianyu-auto-reply
+
+# 创建虚拟环境
+python -m venv .venv
+
+# 激活虚拟环境
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+# Windows CMD
+.venv\Scripts\activate
 
 # 2. 安装依赖
 pip install -r requirements.txt

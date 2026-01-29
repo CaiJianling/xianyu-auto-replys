@@ -1,5 +1,5 @@
 # 使用Python 3.11作为基础镜像
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # 设置标签信息
 LABEL maintainer="Xianyu Auto Reply System"
@@ -42,7 +42,7 @@ RUN apt-get update && \
         libasound2 \
         libatspi2.0-0 \
         libgtk-3-0 \
-        libgdk-pixbuf2.0-0 \
+        libgdk-pixbuf-2.0-0 \
         libxcursor1 \
         libxi6 \
         libxrender1 \

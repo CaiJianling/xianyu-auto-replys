@@ -288,8 +288,13 @@ class DBManager:
             CREATE TABLE IF NOT EXISTS notification_channels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
-                type TEXT NOT NULL CHECK (type IN ('qq')),
+                type TEXT NOT NULL CHECK (type IN ('qq', 'email')),
                 config TEXT NOT NULL,
+                smtp_server TEXT,
+                smtp_port INTEGER,
+                sender_email TEXT,
+                smtp_password TEXT,
+                recipients TEXT,
                 enabled BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -404,6 +409,55 @@ class DBManager:
                 else:
                     # user_id列存在，更新NULL值
                     self._execute_sql(cursor, "UPDATE notification_channels SET user_id = ? WHERE user_id IS NULL", (admin_user_id,))
+
+                # 为notification_channels表添加邮箱相关字段（如果不存在）
+                try:
+                    self._execute_sql(cursor, "SELECT smtp_server FROM notification_channels LIMIT 1")
+                except sqlite3.OperationalError:
+                    # 字段不存在，需要添加
+                    self._execute_sql(cursor, "ALTER TABLE notification_channels ADD COLUMN smtp_server TEXT")
+                    self._execute_sql(cursor, "ALTER TABLE notification_channels ADD COLUMN smtp_port INTEGER")
+                    self._execute_sql(cursor, "ALTER TABLE notification_channels ADD COLUMN sender_email TEXT")
+                    self._execute_sql(cursor, "ALTER TABLE notification_channels ADD COLUMN smtp_password TEXT")
+                    self._execute_sql(cursor, "ALTER TABLE notification_channels ADD COLUMN recipients TEXT")
+                    logger.info("为notification_channels表添加邮箱相关字段")
+
+                # 更新notification_channels表的CHECK约束以支持email类型
+                try:
+                    # 尝试插入email类型来测试约束
+                    self._execute_sql(cursor, "INSERT INTO notification_channels (name, type, config) VALUES ('__test__', 'email', '{}')")
+                    # 如果成功，回滚测试插入
+                    self._execute_sql(cursor, "DELETE FROM notification_channels WHERE name = '__test__'")
+                except sqlite3.IntegrityError:
+                    # 约束失败，需要重建表
+                    logger.info("更新notification_channels表的CHECK约束以支持email类型")
+                    # 备份数据
+                    self._execute_sql(cursor, "CREATE TABLE notification_channels_backup AS SELECT * FROM notification_channels")
+                    # 删除旧表
+                    self._execute_sql(cursor, "DROP TABLE notification_channels")
+                    # 创建新表（包含更新后的约束）
+                    self._execute_sql(cursor, '''
+                    CREATE TABLE notification_channels (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        type TEXT NOT NULL CHECK (type IN ('qq', 'email')),
+                        config TEXT NOT NULL,
+                        user_id INTEGER,
+                        smtp_server TEXT,
+                        smtp_port INTEGER,
+                        sender_email TEXT,
+                        smtp_password TEXT,
+                        recipients TEXT,
+                        enabled BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    ''')
+                    # 恢复数据
+                    self._execute_sql(cursor, "INSERT INTO notification_channels SELECT * FROM notification_channels_backup")
+                    # 删除备份表
+                    self._execute_sql(cursor, "DROP TABLE notification_channels_backup")
+                    logger.info("notification_channels表CHECK约束更新完成")
 
                 # 为email_verifications表添加type字段（如果不存在）
                 try:
@@ -985,15 +1039,27 @@ class DBManager:
                 return False
 
     # -------------------- 通知渠道操作 --------------------
-    def create_notification_channel(self, name: str, channel_type: str, config: str, user_id: int = None) -> int:
+    def create_notification_channel(self, name: str, channel_type: str, config: str, user_id: int = None,
+                                   smtp_server: str = None, smtp_port: int = None,
+                                   sender_email: str = None, smtp_password: str = None,
+                                   recipients: str = None) -> int:
         """创建通知渠道"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                cursor.execute('''
-                INSERT INTO notification_channels (name, type, config, user_id)
-                VALUES (?, ?, ?, ?)
-                ''', (name, channel_type, config, user_id))
+                if channel_type == 'email':
+                    cursor.execute('''
+                    INSERT INTO notification_channels (name, type, config, user_id,
+                                                     smtp_server, smtp_port, sender_email,
+                                                     smtp_password, recipients)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (name, channel_type, config, user_id, smtp_server,
+                          smtp_port, sender_email, smtp_password, recipients))
+                else:
+                    cursor.execute('''
+                    INSERT INTO notification_channels (name, type, config, user_id)
+                    VALUES (?, ?, ?, ?)
+                    ''', (name, channel_type, config, user_id))
                 self.conn.commit()
                 channel_id = cursor.lastrowid
                 logger.debug(f"创建通知渠道: {name} (ID: {channel_id})")
@@ -1010,14 +1076,16 @@ class DBManager:
                 cursor = self.conn.cursor()
                 if user_id is not None:
                     cursor.execute('''
-                    SELECT id, name, type, config, enabled, created_at, updated_at
+                    SELECT id, name, type, config, smtp_server, smtp_port, sender_email,
+                           recipients, enabled, created_at, updated_at
                     FROM notification_channels
                     WHERE user_id = ?
                     ORDER BY created_at DESC
                     ''', (user_id,))
                 else:
                     cursor.execute('''
-                    SELECT id, name, type, config, enabled, created_at, updated_at
+                    SELECT id, name, type, config, smtp_server, smtp_port, sender_email,
+                           recipients, enabled, created_at, updated_at
                     FROM notification_channels
                     ORDER BY created_at DESC
                     ''')
@@ -1029,7 +1097,11 @@ class DBManager:
                         'name': row[1],
                         'type': row[2],
                         'config': row[3],
-                        'enabled': bool(row[4]),
+                        'smtp_server': row[4],
+                        'smtp_port': row[5],
+                        'sender_email': row[6],
+                        'recipients': row[7],
+                        'enabled': bool(row[8]),
                         'created_at': row[5],
                         'updated_at': row[6]
                     })
@@ -1045,7 +1117,8 @@ class DBManager:
             try:
                 cursor = self.conn.cursor()
                 cursor.execute('''
-                SELECT id, name, type, config, enabled, created_at, updated_at
+                SELECT id, name, type, config, enabled, created_at, updated_at,
+                       smtp_server, smtp_port, sender_email, smtp_password, recipients
                 FROM notification_channels WHERE id = ?
                 ''', (channel_id,))
 
@@ -1058,23 +1131,48 @@ class DBManager:
                         'config': row[3],
                         'enabled': bool(row[4]),
                         'created_at': row[5],
-                        'updated_at': row[6]
+                        'updated_at': row[6],
+                        'smtp_server': row[7],
+                        'smtp_port': row[8],
+                        'sender_email': row[9],
+                        'smtp_password': row[10],
+                        'recipients': row[11]
                     }
                 return None
             except Exception as e:
                 logger.error(f"获取通知渠道失败: {e}")
                 return None
 
-    def update_notification_channel(self, channel_id: int, name: str, config: str, enabled: bool = True) -> bool:
+    def update_notification_channel(self, channel_id: int, name: str, config: str, enabled: bool = True,
+                                   smtp_server: str = None, smtp_port: int = None,
+                                   sender_email: str = None, smtp_password: str = None,
+                                   recipients: str = None) -> bool:
         """更新通知渠道"""
         with self.lock:
             try:
                 cursor = self.conn.cursor()
-                cursor.execute('''
-                UPDATE notification_channels
-                SET name = ?, config = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                ''', (name, config, enabled, channel_id))
+                # 检查是否需要更新邮箱相关字段
+                cursor.execute('SELECT type FROM notification_channels WHERE id = ?', (channel_id,))
+                result = cursor.fetchone()
+                if not result:
+                    return False
+
+                channel_type = result[0]
+
+                if channel_type == 'email':
+                    cursor.execute('''
+                    UPDATE notification_channels
+                    SET name = ?, config = ?, enabled = ?, smtp_server = ?, smtp_port = ?,
+                        sender_email = ?, smtp_password = ?, recipients = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    ''', (name, config, enabled, smtp_server, smtp_port,
+                          sender_email, smtp_password, recipients, channel_id))
+                else:
+                    cursor.execute('''
+                    UPDATE notification_channels
+                    SET name = ?, config = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    ''', (name, config, enabled, channel_id))
                 self.conn.commit()
                 logger.debug(f"更新通知渠道: {channel_id}")
                 return cursor.rowcount > 0

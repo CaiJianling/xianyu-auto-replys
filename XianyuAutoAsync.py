@@ -1430,6 +1430,8 @@ class XianyuLive:
                 logger.info(f"延时完成")
 
             # 如果有订单ID，执行确认发货
+            confirm_failed = False  # 标记确认发货是否失败
+            confirm_error = None  # 保存确认发货失败的错误信息
             if order_id:
                 # 检查是否启用自动确认发货
                 if not self.is_auto_confirm_enabled():
@@ -1452,7 +1454,9 @@ class XianyuLive:
                             self.confirmed_orders[order_id] = current_time
                             logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
                         else:
-                            logger.warning(f"⚠️ 自动确认发货失败: {confirm_result.get('error', '未知错误')}")
+                            confirm_failed = True
+                            confirm_error = confirm_result.get('error', '未知错误')
+                            logger.warning(f"⚠️ 自动确认发货失败: {confirm_error}")
                             # 即使确认发货失败，也继续发送发货内容
 
             # 开始处理发货内容
@@ -1480,7 +1484,12 @@ class XianyuLive:
                 # 增加发货次数统计
                 db_manager.increment_delivery_times(rule['id'])
                 logger.info(f"自动发货成功: 规则ID={rule['id']}, 内容长度={len(final_content)}")
-                return final_content
+                # 返回结果包含发货内容和确认发货状态
+                return {
+                    'content': final_content,
+                    'confirm_failed': confirm_failed,
+                    'confirm_error': confirm_error
+                }
             else:
                 logger.warning(f"获取发货内容失败: 规则ID={rule['id']}")
                 return None

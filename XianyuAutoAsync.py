@@ -110,6 +110,15 @@ class XianyuLive:
 
         self.session = None  # 用于API调用的aiohttp session
 
+        # 注册自己到cookie_manager
+        try:
+            from cookie_manager import manager
+            if manager:
+                manager.register_xianyu_instance(cookie_id, self)
+                logger.debug(f"【{cookie_id}】已注册到cookie_manager")
+        except Exception as e:
+            logger.warning(f"【{cookie_id}】注册到cookie_manager失败: {self._safe_str(e)}")
+
     def is_auto_confirm_enabled(self) -> bool:
         """检查当前账号是否启用自动确认发货"""
         try:
@@ -1484,12 +1493,8 @@ class XianyuLive:
                 # 增加发货次数统计
                 db_manager.increment_delivery_times(rule['id'])
                 logger.info(f"自动发货成功: 规则ID={rule['id']}, 内容长度={len(final_content)}")
-                # 返回结果包含发货内容和确认发货状态
-                return {
-                    'content': final_content,
-                    'confirm_failed': confirm_failed,
-                    'confirm_error': confirm_error
-                }
+                # 返回发货内容字符串（兼容旧代码）
+                return final_content
             else:
                 logger.warning(f"获取发货内容失败: 规则ID={rule['id']}")
                 return None

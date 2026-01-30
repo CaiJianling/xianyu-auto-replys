@@ -297,6 +297,38 @@ class CookieManager:
         """获取账号的自动确认发货设置"""
         return self.auto_confirm_settings.get(cookie_id, True)  # 默认开启
 
+    def get_xianyu_instance(self, cookie_id: str):
+        """获取指定Cookie对应的XianyuLive实例"""
+        if cookie_id not in self.tasks:
+            logger.warning(f"Cookie任务不存在: {cookie_id}")
+            return None
+
+        task = self.tasks[cookie_id]
+        if task.done():
+            logger.warning(f"Cookie任务已完成: {cookie_id}")
+            return None
+
+        # 通过task的coro的cr_frame获取XianyuLive实例
+        # 由于我们无法直接从task获取实例，我们需要另一种方式
+        # 检查是否有实例缓存
+        if not hasattr(self, '_xianyu_instances'):
+            self._xianyu_instances = {}
+
+        return self._xianyu_instances.get(cookie_id)
+
+    def register_xianyu_instance(self, cookie_id: str, instance):
+        """注册XianyuLive实例"""
+        if not hasattr(self, '_xianyu_instances'):
+            self._xianyu_instances = {}
+        self._xianyu_instances[cookie_id] = instance
+        logger.debug(f"已注册XianyuLive实例: {cookie_id}")
+
+    def unregister_xianyu_instance(self, cookie_id: str):
+        """注销XianyuLive实例"""
+        if hasattr(self, '_xianyu_instances') and cookie_id in self._xianyu_instances:
+            del self._xianyu_instances[cookie_id]
+            logger.debug(f"已注销XianyuLive实例: {cookie_id}")
+
 
 # 在 Start.py 中会把此变量赋值为具体实例
 manager: Optional[CookieManager] = None 

@@ -1,5 +1,9 @@
 # 使用Python 3.11作为基础镜像
-FROM python:3.11-slim-bookworm
+# FROM python:3.11-slim-bookworm
+# 阿里云 Docker 镜像源，同版本 3.11-slim-bookworm，国内网络专属
+FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim-bookworm
+# 网易云 Docker 镜像源，同版本镜像，适配所有国内网络
+# FROM hub-mirror.c.163.com/library/python:3.11-slim-bookworm
 
 # 设置标签信息
 LABEL maintainer="Xianyu Auto Reply System"

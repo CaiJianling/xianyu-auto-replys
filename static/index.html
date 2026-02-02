@@ -2151,13 +2151,43 @@
               </select>
               <small class="form-text text-muted">选择要接收此账号消息通知的渠道</small>
             </div>
+
+            <hr>
+            <h6 class="mb-3">通知类型设置</h6>
+
             <div class="mb-3">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="notificationEnabled" checked>
-                <label class="form-check-label" for="notificationEnabled">
-                  启用消息通知
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="enableAllNotifications" checked>
+                <label class="form-check-label" for="enableAllNotifications">
+                  <i class="bi bi-bell-fill me-1"></i>启用所有通知
                 </label>
               </div>
+              <small class="form-text text-muted">关闭后将禁用该账号的所有通知</small>
+            </div>
+
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="enableDeliveryNotification" checked>
+                <label class="form-check-label" for="enableDeliveryNotification">
+                  <i class="bi bi-truck me-1"></i>发货通知
+                </label>
+              </div>
+              <small class="form-text text-muted">发货成功或失败时发送通知</small>
+            </div>
+
+            <div class="mb-3">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="enableTokenNotification" checked>
+                <label class="form-check-label" for="enableTokenNotification">
+                  <i class="bi bi-clock-history me-1"></i>Token过期通知
+                </label>
+              </div>
+              <small class="form-text text-muted">Cookie过期或刷新失败时发送通知</small>
+            </div>
+
+            <div class="alert alert-warning d-none" id="notificationWarning">
+              <i class="bi bi-exclamation-triangle me-2"></i>
+              注意：需要先选择通知渠道才能接收通知
             </div>
           </form>
         </div>
@@ -5132,6 +5162,18 @@
           currentNotifications = await notificationResponse.json();
         }
 
+        // 获取通知类型设置
+        const typesResponse = await fetch(`${apiBase}/notification-types/${accountId}`, {
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+
+        let notificationTypes = { delivery: true, token: true, all: true };
+        if (typesResponse.ok) {
+          notificationTypes = await typesResponse.json();
+        }
+
         // 填充表单
         document.getElementById('configAccountId').value = accountId;
         document.getElementById('displayAccountId').value = accountId;
@@ -5158,6 +5200,19 @@
         // 设置启用状态
         document.getElementById('notificationEnabled').checked =
           currentNotification ? currentNotification.enabled : true;
+
+        // 设置通知类型
+        document.getElementById('enableAllNotifications').checked = notificationTypes.all !== false;
+        document.getElementById('enableDeliveryNotification').checked = notificationTypes.delivery !== false;
+        document.getElementById('enableTokenNotification').checked = notificationTypes.token !== false;
+
+        // 显示警告提示
+        const warningDiv = document.getElementById('notificationWarning');
+        if (!currentNotification) {
+          warningDiv.classList.remove('d-none');
+        } else {
+          warningDiv.classList.add('d-none');
+        }
 
         // 显示配置模态框
         const modal = new bootstrap.Modal(document.getElementById('configNotificationModal'));
@@ -5201,13 +5256,19 @@
       const channelId = document.getElementById('notificationChannel').value;
       const enabled = document.getElementById('notificationEnabled').checked;
 
+      // 获取通知类型设置
+      const enableAll = document.getElementById('enableAllNotifications').checked;
+      const enableDelivery = document.getElementById('enableDeliveryNotification').checked;
+      const enableToken = document.getElementById('enableTokenNotification').checked;
+
       if (!channelId) {
         showToast('请选择通知渠道', 'warning');
         return;
       }
 
       try {
-        const response = await fetch(`${apiBase}/message-notifications/${accountId}`, {
+        // 保存通知渠道配置
+        const notificationResponse = await fetch(`${apiBase}/message-notifications/${accountId}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${authToken}`,
@@ -5219,13 +5280,27 @@
           })
         });
 
-        if (response.ok) {
+        // 保存通知类型设置
+        const typesResponse = await fetch(`${apiBase}/notification-types/${accountId}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            delivery: enableDelivery,
+            token: enableToken,
+            all: enableAll
+          })
+        });
+
+        if (notificationResponse.ok && typesResponse.ok) {
           showToast('通知配置保存成功', 'success');
           const modal = bootstrap.Modal.getInstance(document.getElementById('configNotificationModal'));
           modal.hide();
           loadMessageNotifications();
         } else {
-          const error = await response.text();
+          const error = await notificationResponse.text() || await typesResponse.text();
           showToast(`保存失败: ${error}`, 'danger');
         }
       } catch (error) {

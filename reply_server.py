@@ -874,6 +874,12 @@ class MessageNotificationIn(BaseModel):
     enabled: bool = True
 
 
+class NotificationTypeIn(BaseModel):
+    delivery: bool = True
+    token: bool = True
+    all: bool = True
+
+
 class SystemSettingIn(BaseModel):
     key: str
     value: str
@@ -1338,6 +1344,53 @@ def delete_account_notifications(cid: str, _: None = Depends(require_auth)):
             return {'msg': 'account notifications deleted'}
         else:
             raise HTTPException(status_code=404, detail='账号通知配置不存在')
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get('/notification-types/{cid}')
+def get_notification_types(cid: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """获取账号的通知类型设置"""
+    from db_manager import db_manager
+    try:
+        # 检查cookie是否属于当前用户
+        user_id = current_user['user_id']
+        user_cookies = db_manager.get_all_cookies(user_id)
+
+        if cid not in user_cookies:
+            raise HTTPException(status_code=403, detail="无权限访问该Cookie")
+
+        return db_manager.get_notification_types(cid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/notification-types/{cid}')
+def set_notification_types(cid: str, types: NotificationTypeIn, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """设置账号的通知类型"""
+    from db_manager import db_manager
+    try:
+        # 检查cookie是否属于当前用户
+        user_id = current_user['user_id']
+        user_cookies = db_manager.get_all_cookies(user_id)
+
+        if cid not in user_cookies:
+            raise HTTPException(status_code=403, detail="无权限操作该Cookie")
+
+        # 保存每种通知类型
+        db_manager.set_notification_type(cid, 'delivery', types.delivery)
+        db_manager.set_notification_type(cid, 'token', types.token)
+        db_manager.set_notification_type(cid, 'all', types.all)
+
+        return {'msg': 'notification types updated'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

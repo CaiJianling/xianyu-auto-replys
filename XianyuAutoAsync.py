@@ -155,10 +155,23 @@ class XianyuLive:
 
 
 
-    async def refresh_token(self):
-        """刷新token"""
+    async def refresh_token(self, retry_count=0):
+        """刷新token（带重试机制）"""
+        max_retries = 2
+
         try:
-            logger.info(f"【{self.cookie_id}】开始刷新token...")
+            logger.info(f"【{self.cookie_id}】开始刷新token... (重试次数: {retry_count}/{max_retries})")
+
+            # 检查Cookie关键字段是否存在
+            cookies_dict = trans_cookies(self.cookies_str)
+            required_fields = ['_m_h5_tk', 'unb', 'cookie2']
+            missing_fields = [f for f in required_fields if f not in cookies_dict or not cookies_dict[f]]
+
+            if missing_fields:
+                logger.error(f"【{self.cookie_id}】Cookie缺少必要字段: {missing_fields}，请重新获取Cookie")
+                await self.send_token_refresh_notification(f"Cookie缺少必要字段: {missing_fields}，请重新登录获取", "cookie_missing_fields")
+                return None
+
             params = {
                 'jsv': '2.7.2',
                 'appKey': '34839810',
@@ -168,7 +181,7 @@ class XianyuLive:
                 'type': 'originaljson',
                 'accountSite': 'xianyu',
                 'dataType': 'json',
-                'timeout': '20000',
+                'timeout': '30000',  # 增加超时时间到30秒
                 'api': 'mtop.taobao.idlemessage.pc.login.token',
                 'sessionOption': 'AutoLoginOnly',
                 'spm_cnt': 'a21ybx.im.0.0',
@@ -177,19 +190,20 @@ class XianyuLive:
             data = {
                 'data': data_val,
             }
-            
+
             # 获取token
             token = None
             token = trans_cookies(self.cookies_str).get('_m_h5_tk', '').split('_')[0] if trans_cookies(self.cookies_str).get('_m_h5_tk') else ''
-            
+
             sign = generate_sign(params['t'], token, data_val)
             params['sign'] = sign
-            
+
             # 发送请求
             headers = DEFAULT_HEADERS.copy()
             headers['cookie'] = self.cookies_str
-            
-            async with aiohttp.ClientSession() as session:
+
+            timeout = aiohttp.ClientTimeout(total=30)  # 设置30秒超时
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(
                     API_ENDPOINTS.get('token'),
                     params=params,
@@ -214,7 +228,7 @@ class XianyuLive:
                             # 更新数据库中的Cookie
                             await self.update_config_cookies()
                             logger.debug("已更新Cookie到数据库")
-                    
+
                     if isinstance(res_json, dict):
                         ret_value = res_json.get('ret', [])
                         # 检查ret是否包含成功信息
@@ -225,11 +239,43 @@ class XianyuLive:
                                 self.last_token_refresh_time = time.time()
                                 logger.info(f"【{self.cookie_id}】Token刷新成功")
                                 return new_token
-                            
+
+                    # 检查是否需要重试
+                    error_msg = str(res_json)
+                    should_retry = False
+
+                    # 网络相关错误可以重试
+                    retry_errors = [
+                        'timeout',
+                        'connection',
+                        '网络',
+                        '连接',
+                        'TIMEOUT'
+                    ]
+
+                    for err in retry_errors:
+                        if err.lower() in error_msg.lower():
+                            should_retry = True
+                            break
+
+                    if should_retry and retry_count < max_retries:
+                        logger.warning(f"【{self.cookie_id}】Token刷新遇到网络问题，2秒后重试 (第{retry_count + 1}次)")
+                        await asyncio.sleep(2)
+                        return await self.refresh_token(retry_count + 1)
+
                     logger.error(f"【{self.cookie_id}】Token刷新失败: {res_json}")
                     # 发送Token刷新失败通知
                     await self.send_token_refresh_notification(f"Token刷新失败: {res_json}", "token_refresh_failed")
                     return None
+
+        except asyncio.TimeoutError:
+            logger.error(f"【{self.cookie_id}】Token刷新超时")
+            if retry_count < max_retries:
+                logger.warning(f"【{self.cookie_id}】Token刷新超时，3秒后重试 (第{retry_count + 1}次)")
+                await asyncio.sleep(3)
+                return await self.refresh_token(retry_count + 1)
+            await self.send_token_refresh_notification("Token刷新超时", "token_refresh_timeout")
+            return None
 
         except Exception as e:
             logger.error(f"Token刷新异常: {self._safe_str(e)}")
@@ -1068,6 +1114,15 @@ class XianyuLive:
     async def send_token_refresh_notification(self, error_message: str, notification_type: str = "token_refresh"):
         """发送Token刷新异常通知（带防重复机制）"""
         try:
+            # 检查是否启用了Token通知
+            try:
+                from db_manager import db_manager
+                if not db_manager.check_notification_enabled(self.cookie_id, 'token'):
+                    logger.debug(f"【{self.cookie_id}】Token通知已禁用，跳过发送")
+                    return
+            except Exception as e:
+                logger.warning(f"检查Token通知设置失败: {self._safe_str(e)}")
+
             # 检查是否是正常的令牌过期，这种情况不需要发送通知
             if self._is_normal_token_expiry(error_message):
                 logger.debug(f"检测到正常的令牌过期，跳过通知: {error_message}")
@@ -1161,6 +1216,14 @@ class XianyuLive:
         """发送自动发货失败通知"""
         try:
             from db_manager import db_manager
+
+            # 检查是否启用了发货通知
+            try:
+                if not db_manager.check_notification_enabled(self.cookie_id, 'delivery'):
+                    logger.debug(f"【{self.cookie_id}】发货通知已禁用，跳过发送")
+                    return
+            except Exception as e:
+                logger.warning(f"检查发货通知设置失败: {self._safe_str(e)}")
 
             # 获取当前账号的通知配置
             notifications = db_manager.get_account_notifications(self.cookie_id)
@@ -1439,8 +1502,6 @@ class XianyuLive:
                 logger.info(f"延时完成")
 
             # 如果有订单ID，执行确认发货
-            confirm_failed = False  # 标记确认发货是否失败
-            confirm_error = None  # 保存确认发货失败的错误信息
             if order_id:
                 # 检查是否启用自动确认发货
                 if not self.is_auto_confirm_enabled():
@@ -1463,9 +1524,8 @@ class XianyuLive:
                             self.confirmed_orders[order_id] = current_time
                             logger.info(f"🎉 自动确认发货成功！订单ID: {order_id}")
                         else:
-                            confirm_failed = True
-                            confirm_error = confirm_result.get('error', '未知错误')
-                            logger.warning(f"⚠️ 自动确认发货失败: {confirm_error}")
+                            error = confirm_result.get('error', '未知错误')
+                            logger.warning(f"⚠️ 自动确认发货失败: {error}")
                             # 即使确认发货失败，也继续发送发货内容
 
             # 开始处理发货内容

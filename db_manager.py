@@ -360,6 +360,20 @@ class DBManager:
             )
             ''')
 
+            # 创建账号通知类型设置表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS account_notification_types (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cookie_id TEXT NOT NULL,
+                notification_type TEXT NOT NULL CHECK (notification_type IN ('delivery', 'token', 'all')),
+                enabled BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE,
+                UNIQUE(cookie_id, notification_type)
+            )
+            ''')
+
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
@@ -1327,6 +1341,57 @@ class DBManager:
                 logger.error(f"删除账号通知配置失败: {e}")
                 self.conn.rollback()
                 return False
+
+    # ==================== 通知类型设置方法 ====================
+
+    def set_notification_type(self, cookie_id: str, notification_type: str, enabled: bool) -> bool:
+        """设置账号的通知类型"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    INSERT INTO account_notification_types (cookie_id, notification_type, enabled)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(cookie_id, notification_type) DO UPDATE SET
+                        enabled = excluded.enabled,
+                        updated_at = CURRENT_TIMESTAMP
+                ''', (cookie_id, notification_type, enabled))
+                self.conn.commit()
+                logger.debug(f"设置通知类型: {cookie_id} -> {notification_type} = {enabled}")
+                return True
+            except Exception as e:
+                logger.error(f"设置通知类型失败: {e}")
+                self.conn.rollback()
+                return False
+
+    def get_notification_types(self, cookie_id: str) -> Dict[str, bool]:
+        """获取账号的通知类型设置"""
+        with self.lock:
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT notification_type, enabled
+                    FROM account_notification_types
+                    WHERE cookie_id = ?
+                ''', (cookie_id,))
+
+                types = {'delivery': True, 'token': True, 'all': True}  # 默认全部启用
+                for row in cursor.fetchall():
+                    types[row[0]] = bool(row[1])
+
+                return types
+            except Exception as e:
+                logger.error(f"获取通知类型设置失败: {e}")
+                return {'delivery': True, 'token': True, 'all': True}
+
+    def check_notification_enabled(self, cookie_id: str, notification_type: str) -> bool:
+        """检查指定类型的通知是否启用"""
+        types = self.get_notification_types(cookie_id)
+        # 如果'all'禁用，则所有通知都禁用
+        if not types.get('all', True):
+            return False
+        # 检查特定类型
+        return types.get(notification_type, True)
 
     # -------------------- 备份和恢复操作 --------------------
     def export_backup(self, user_id: int = None) -> Dict[str, any]:

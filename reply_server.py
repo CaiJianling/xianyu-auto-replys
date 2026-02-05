@@ -1445,7 +1445,7 @@ def get_registration_enabled():
     try:
         setting = db_manager.get_system_setting('user_registration_enabled')
         # 默认允许注册
-        enabled = setting.get('value', 'true') if setting else 'true'
+        enabled = setting if setting else 'true'
         return {'value': enabled}
     except Exception as e:
         # 出错时默认允许注册

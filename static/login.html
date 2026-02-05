@@ -256,6 +256,25 @@
 
   <script src="/static/lib/bootstrap/bootstrap.bundle.min.js"></script>
   <script>
+    // 检查是否允许注册
+    async function checkRegistrationEnabled() {
+      try {
+        const response = await fetch('/system-settings/registration-enabled');
+        if (response.ok) {
+          const data = await response.json();
+          const allowRegistration = data.value === 'true';
+          // 如果禁止注册，隐藏注册链接
+          const registerSection = document.querySelector('.text-center.mt-3');
+          if (registerSection && !allowRegistration) {
+            registerSection.style.display = 'none';
+          }
+        }
+      } catch (error) {
+        console.error('检查注册设置失败:', error);
+        // 出错时默认显示注册链接
+      }
+    }
+
     const loginForm = document.getElementById('loginForm');
     const errorAlert = document.getElementById('errorAlert');
     const errorMessage = document.getElementById('errorMessage');
@@ -636,6 +655,9 @@
 
     // 事件监听器
     document.addEventListener('DOMContentLoaded', function() {
+      // 检查是否允许注册
+      checkRegistrationEnabled();
+
       // 登录方式切换
       document.querySelectorAll('input[name="loginType"]').forEach(radio => {
         radio.addEventListener('change', switchLoginType);

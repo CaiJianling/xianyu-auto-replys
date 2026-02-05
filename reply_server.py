@@ -1438,6 +1438,20 @@ def get_system_settings(_: None = Depends(require_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get('/system-settings/registration-enabled')
+def get_registration_enabled():
+    """公开端点：获取是否允许注册（不需要认证）"""
+    from db_manager import db_manager
+    try:
+        setting = db_manager.get_system_setting('user_registration_enabled')
+        # 默认允许注册
+        enabled = setting.get('value', 'true') if setting else 'true'
+        return {'value': enabled}
+    except Exception as e:
+        # 出错时默认允许注册
+        return {'value': 'true'}
+
+
 
 
 

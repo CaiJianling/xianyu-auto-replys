@@ -750,11 +750,11 @@ async def send_verification_code(request: SendCodeRequest):
 @app.post('/register')
 async def register(request: RegisterRequest):
     from db_manager import db_manager
-    from config import USER_REGISTRATION
 
     try:
         # 检查是否允许注册
-        if not USER_REGISTRATION.get('enabled', True):
+        registration_enabled = db_manager.get_system_setting('user_registration_enabled')
+        if registration_enabled and registration_enabled == 'false':
             logger.warning(f"【{request.username}】注册失败: 系统已关闭注册功能")
             return RegisterResponse(
                 success=False,
@@ -1427,14 +1427,8 @@ def delete_message_notification(notification_id: int, _: None = Depends(require_
 def get_system_settings(_: None = Depends(require_auth)):
     """获取系统设置（排除敏感信息）"""
     from db_manager import db_manager
-    from config import USER_REGISTRATION
     try:
         settings = db_manager.get_all_system_settings()
-
-        # 从配置文件中读取注册开关状态
-        if 'user_registration_enabled' in settings:
-            # 如果数据库中已有该设置，则使用配置文件覆盖数据库的值
-            settings['user_registration_enabled'] = 'true' if USER_REGISTRATION.get('enabled', True) else 'false'
 
         # 移除敏感信息
         if 'admin_password_hash' in settings:
@@ -1451,7 +1445,6 @@ def get_system_settings(_: None = Depends(require_auth)):
 def update_system_setting(key: str, setting_data: SystemSettingIn, _: None = Depends(require_auth)):
     """更新系统设置"""
     from db_manager import db_manager
-    from config import config
     try:
         # 禁止直接修改密码哈希
         if key == 'admin_password_hash':
@@ -1460,11 +1453,9 @@ def update_system_setting(key: str, setting_data: SystemSettingIn, _: None = Dep
         # 更新数据库中的设置
         success = db_manager.set_system_setting(key, setting_data.value, setting_data.description)
 
-        # 如果是注册开关，同时更新配置文件
+        # 如果是注册开关，记录日志
         if key == 'user_registration_enabled' and success:
             enabled = setting_data.value == 'true'
-            config.set('USER_REGISTRATION.enabled', enabled)
-            config.save()
             logger.info(f"用户注册功能已{'开启' if enabled else '关闭'}")
 
         if success:

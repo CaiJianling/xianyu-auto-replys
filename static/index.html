@@ -1952,6 +1952,32 @@
           </div>
         </div>
 
+        <!-- 注册设置 (仅管理员可见) -->
+        <div id="registration-management" class="row mt-4" style="display: none;">
+          <div class="col-12">
+            <div class="card">
+              <div class="card-header">
+                <i class="bi bi-person-plus me-2"></i>注册设置
+                <span class="badge bg-warning ms-2">管理员专用</span>
+              </div>
+              <div class="card-body">
+                <div class="row">
+                  <div class="col-md-6">
+                    <h6 class="mb-3">
+                      <i class="bi bi-toggle-on me-2"></i>用户注册开关
+                    </h6>
+                    <p class="text-muted mb-3">开启后，新用户可以注册账号；关闭后，将禁止新用户注册</p>
+                    <div class="form-check form-switch">
+                      <input class="form-check-input" type="checkbox" id="registrationToggle" style="width: 3em; height: 1.5em;" onchange="toggleRegistration()">
+                      <label class="form-check-label ms-2" for="registrationToggle" id="registrationLabel">允许新用户注册</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 备份管理 (仅管理员可见) -->
         <div id="backup-management" class="row mt-4" style="display: none;">
           <div class="col-12">
@@ -4258,6 +4284,12 @@
           const backupManagement = document.getElementById('backup-management');
           if (backupManagement) {
             backupManagement.style.display = 'block';
+          }
+
+          // 显示注册设置功能
+          const registrationManagement = document.getElementById('registration-management');
+          if (registrationManagement) {
+            registrationManagement.style.display = 'block';
           }
         }
 
@@ -6707,7 +6739,73 @@
 
       // 页面加载时加载用户设置
       loadUserSettings();
+
+      // 加载系统设置（注册开关等）
+      loadSystemSettings();
     });
+
+    // 加载系统设置
+    async function loadSystemSettings() {
+      try {
+        const response = await fetch(`${apiBase}/system-settings`, {
+          headers: {
+            'Authorization': `Bearer ${authToken}`
+          }
+        });
+
+        if (response.ok) {
+          const settings = await response.json();
+
+          // 加载注册开关状态
+          const registrationToggle = document.getElementById('registrationToggle');
+          const registrationLabel = document.getElementById('registrationLabel');
+          if (registrationToggle && settings.user_registration_enabled !== undefined) {
+            registrationToggle.checked = settings.user_registration_enabled === 'true';
+            registrationLabel.textContent = settings.user_registration_enabled === 'true' ? '允许新用户注册' : '禁止新用户注册';
+          }
+        }
+      } catch (error) {
+        console.error('加载系统设置失败:', error);
+      }
+    }
+
+    // 切换注册开关
+    async function toggleRegistration() {
+      const toggle = document.getElementById('registrationToggle');
+      const enabled = toggle.checked;
+      const label = document.getElementById('registrationLabel');
+
+      try {
+        showToast('正在更新注册设置...', 'info');
+
+        const response = await fetch(`${apiBase}/system-settings/user_registration_enabled`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            value: enabled ? 'true' : 'false',
+            description: '是否允许新用户注册'
+          })
+        });
+
+        if (response.ok) {
+          label.textContent = enabled ? '允许新用户注册' : '禁止新用户注册';
+          showToast(enabled ? '注册功能已开启' : '注册功能已关闭', 'success');
+        } else {
+          const error = await response.text();
+          showToast(`更新失败: ${error}`, 'danger');
+          // 恢复开关状态
+          toggle.checked = !enabled;
+        }
+      } catch (error) {
+        console.error('更新注册设置失败:', error);
+        showToast('更新注册设置失败', 'danger');
+        // 恢复开关状态
+        toggle.checked = !enabled;
+      }
+    }
 
     // ==================== 备份管理功能 ====================
 

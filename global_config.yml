@@ -58,6 +58,9 @@ MANUAL_MODE:
   timeout: 3600
   toggle_keywords: []
 MESSAGE_EXPIRE_TIME: 300000
+# 用户注册开关配置
+USER_REGISTRATION:
+  enabled: true  # 是否允许新用户注册
 # Token刷新配置：减少刷新频率，避免被闲鱼限流
 TOKEN_REFRESH_INTERVAL: 7200  # 2小时刷新一次（原为1小时）
 TOKEN_RETRY_INTERVAL: 600      # 失败后10分钟重试（原为5分钟）
